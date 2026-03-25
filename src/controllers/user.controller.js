@@ -5,6 +5,7 @@ import {uploadOnCloudinary} from "../utils/cloudinary.js"
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt, { decode } from "jsonwebtoken"
 import mongoose from "mongoose";
+import { subscription } from "../models/subscription.models.js";
 
 
 const generateAccessAndRefereshTokens = async(userId) =>{
@@ -230,7 +231,7 @@ const changeCurrentPassword = asyncHandler(async(req,res)=>{
         throw new ApiError(400, "Wrong Password")
 
     }
-    user.password=currentPassword
+    user.password= currentPassword
     await user.save({validateBeforeSave:false})
 
     return res.status(200)
@@ -249,7 +250,7 @@ const updateDetails= asyncHandler(async(req,res)=>{
         throw new ApiError(400, "Both field is required")
     }
 
-    const user= User.findByIdAndUpdate(
+    const user= await User.findByIdAndUpdate(
         req.user?._id,
         {
             $set:{
@@ -276,9 +277,23 @@ const updateAvatar= asyncHandler(async (req,res)=>{
 
     const avatar= await uploadOnCloudinary(avatarLocalPath)
 
-    if(!avatar.url){
+    if(!avatar?.url){
         throw new ApiError(400,"API error while uploading avatar")
     }
+    // const currentUser= await User.findById(req.user._id)
+
+    // if(currentUser?.avatar){
+    //     try {
+    //         const 
+    //     } catch (error) {
+            
+    //     }
+    // }
+
+
+
+
+
     const user= await User.findByIdAndUpdate(
         req.user._id,
         {
@@ -317,6 +332,81 @@ const updateCoverImage= asyncHandler(async (req,res)=>{
     .json(new ApiResponse(200,user,"Cover Image uploaded successfully"))
 })
 
+const getUserChannelProfile= asyncHandler(async(req,res)=>{
+
+    const username= req.params
+
+    if(!username?.trim()){
+        throw new ApiError(400,"missing username")
+
+    }
+
+    const channel = User.aggregate([
+        {
+            $match:{
+                username:username?.toLowerCase()
+            }
+           
+        },
+        {
+            $lookup:{
+                from:"_id",
+                localField:"subscriptions", // In monogDB Subscription saves as subscriptions
+                foreignField:"channel",
+                save:"subscribers"
+            }
+        },
+        {
+            $lookup:{
+                from:"_id",
+                localField:"subscriptions", // In monogDB Subscription saves as subscriptions
+                foreignField:"subscriber",
+                save:"subscribedTo"
+            }
+        },
+        {
+            $addFields:{
+                subscribersCount:{
+                    $size:"$subscribers"
+                },
+                channelsSubscribedToCount:{
+                    $size:"$subscribedTo"
+                },
+                isSubscribed:{
+                    $cond:{
+                        if:{$in:[req.user?._id,subscribers.subscriber]},
+                        then: true,
+                        else :false
+                    }
+                }
+            }
+        },
+        {
+            $project:{
+                username:1,
+                fullName:1,
+                email:1,
+                subscribersCount:1,
+                channelsSubscribedToCount:1,
+                isSubscribed:1,
+                avatar:1,
+                coverImage:1,
+
+            }
+        }
+    ])
+
+    if(!channel?.length){
+        throw new ApiError(404,"channel does not exist")
+    }
+
+    return res.status(200)
+    .json(
+        new ApiResponse(200,channel[0],"channel data fetched successfully")
+    )
+})
+
+
 export {
     registerUser,
     loginUser,
@@ -327,6 +417,7 @@ export {
     updateDetails,
     updateAvatar,
     updateCoverImage,
+    getUserChannelProfile,
 
 }
 
